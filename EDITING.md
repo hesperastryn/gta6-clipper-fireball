@@ -55,23 +55,32 @@ shadowcolor=black@0.6:shadowx=3:shadowy=3:fontsize=64:x=(w-text_w)/2:y=170[v]" \
 -c:a aac -b:a 192k -ar 48000 -ac 2 seg1.mp4
 ```
 
-Segment 2 — slow motion, punch-in crop (`-t` on the input side, before `setpts` stretches it):
+Segment 2 — slow motion, punch-in crop. Two steps: first a plain trim of the shot (timestamps
+from zero), then the stretch. (`setpts` on a seeked input gets re-timed back to the source
+length by the muxer; the `fps=30` filter after `setpts` is what fills the stretched timeline
+with duplicated frames — 28 source frames become 90.)
 
 ```sh
-ffmpeg -ss 117.85 -t 0.92 -i trailer2.mp4 -filter_complex "\
-[0:v]crop=540:960:760:40,scale=1080:1920,setpts=PTS/0.3,\
+ffmpeg -ss 117.85 -i trailer2.mp4 -t 0.92 -c:v libx264 -crf 18 -preset medium \
+-pix_fmt yuv420p -c:a aac -b:a 192k -ar 48000 -ac 2 seg2src.mp4
+
+ffmpeg -i seg2src.mp4 -filter_complex "\
+[0:v]crop=540:960:760:40,scale=1080:1920,setpts=PTS/0.3,fps=30,\
 drawtext=fontfile=$FONT:textfile=t_slo.txt:fontcolor=white:borderw=6:bordercolor=black:\
 shadowcolor=black@0.6:shadowx=3:shadowy=3:fontsize=64:x=(w-text_w)/2:y=170[v];\
 [0:a]atempo=0.5,atempo=0.6,aformat=sample_rates=48000:channel_layouts=stereo[a]" \
--map "[v]" -map "[a]" -c:v libx264 -crf 18 -preset medium -r 30 -pix_fmt yuv420p \
+-map "[v]" -map "[a]" -c:v libx264 -crf 18 -preset medium -pix_fmt yuv420p \
 -c:a aac -b:a 192k seg2.mp4
 ```
 
-Segment 3 — pitch over the blurred slow-motion loop:
+Segment 3 — pitch over the blurred slow-motion loop. Built from the trimmed segment file
+(`seg2src.mp4`), looped once, so the backdrop is the same explosion shot throughout (looping a
+seeked input instead runs on into the trailer's next shot). `fps=30` after `setpts` again fills
+the stretched timeline:
 
 ```sh
-ffmpeg -stream_loop 1 -ss 117.85 -i trailer2.mp4 -t 7.36 -filter_complex "\
-[0:v]setpts=PTS/0.25,split[a][b];\
+ffmpeg -stream_loop 1 -i seg2src.mp4 -filter_complex "\
+[0:v]setpts=PTS/0.25,fps=30,split[a][b];\
 [a]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,gblur=sigma=35[bg0];\
 [b]scale=1080:-2[fg];[bg0][fg]overlay=(W-w)/2:(H-h)/2,gblur=sigma=12,eq=brightness=-0.22,\
 drawtext=...t_p1.txt...:fontsize=76:x=(w-text_w)/2:y=840:enable='between(t,0,2.45)',\
@@ -79,20 +88,21 @@ drawtext=...t_p2.txt...:fontsize=76:x=(w-text_w)/2:y=840:enable='between(t,2.45,
 drawtext=...t_p3.txt...:fontsize=50:x=(w-text_w)/2:y=880:enable='between(t,4.9,7.36)'[v];\
 [0:a]atempo=0.5,atempo=0.5,volume=0.45,afade=t=out:st=6.56:d=0.8,\
 aformat=sample_rates=48000:channel_layouts=stereo[a]" \
--map "[v]" -map "[a]" -c:v libx264 -crf 18 -preset medium -r 30 -pix_fmt yuv420p \
+-map "[v]" -map "[a]" -t 7.36 -c:v libx264 -crf 18 -preset medium -pix_fmt yuv420p \
 -c:a aac -b:a 192k seg3.mp4
 ```
 
-Join (timestamps normalised per input, then the concat filter; a plain stream-copy concat
-mis-joins these segments and loses time):
+Join (timestamps and SAR normalised per input, then the concat filter; a plain stream-copy
+concat mis-joins these segments and loses time, and the blur-fill segments carry a
+10240:10239 SAR that the concat filter refuses until `setsar=1`):
 
 ```sh
 ffmpeg -i seg1.mp4 -i seg2.mp4 -i seg3.mp4 -filter_complex "\
-[0:v]setpts=PTS-STARTPTS[v0];[0:a]asetpts=PTS-STARTPTS[a0];\
-[1:v]setpts=PTS-STARTPTS[v1];[1:a]asetpts=PTS-STARTPTS[a1];\
-[2:v]setpts=PTS-STARTPTS[v2];[2:a]asetpts=PTS-STARTPTS[a2];\
+[0:v]setpts=PTS-STARTPTS,setsar=1[v0];[0:a]asetpts=PTS-STARTPTS[a0];\
+[1:v]setpts=PTS-STARTPTS,setsar=1[v1];[1:a]asetpts=PTS-STARTPTS[a1];\
+[2:v]setpts=PTS-STARTPTS,setsar=1[v2];[2:a]asetpts=PTS-STARTPTS[a2];\
 [v0][a0][v1][a1][v2][a2]concat=n=3:v=1:a=1[v][a]" \
--map "[v]" -map "[a]" -c:v libx264 -crf 18 -preset medium -r 30 -pix_fmt yuv420p \
+-map "[v]" -map "[a]" -c:v libx264 -crf 18 -preset medium -pix_fmt yuv420p \
 -c:a aac -b:a 192k -ar 48000 -movflags +faststart gta6-chase-gone-wrong.mp4
 ```
 
