@@ -1,3 +1,7 @@
+// Entry point for the gta6-clipper-fireball submission to make.fun's gta6-clipper-01 bounty.
+// The scored work is the published YouTube Short itself; this program only stages its pointer file.
+// At grading time it copies this repo's VIDEO.json — which names the clip's YouTube address — into the
+// output directory the gate inspects, and exits non-zero if that copy cannot be made.
 // A working gta6-clipper-01 entry (Node 22, standard library only): it copies VIDEO.json from the repository root to
 // /output/VIDEO.json, where the gate reads it. That is all the program has to do. The entry is the video itself: your
 // agent finds a GTA 6 moment, cuts it into a vertical clip, the clip is uploaded to YouTube as a public Short or video
